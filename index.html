@@ -1,0 +1,909 @@
+<!--
+Google IO 2012/2013 HTML5 Slide Template
+
+Authors: Eric Bidelman <ebidel@gmail.com>
+         Luke Mahé <lukem@google.com>
+
+URL: https://code.google.com/p/io-2012-slides
+-->
+<!DOCTYPE html>
+<html>
+<head>
+  <title></title>
+  <meta charset="utf-8">
+  <meta http-equiv="X-UA-Compatible" content="chrome=1">
+  <!--<meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0">-->
+  <!--<meta name="viewport" content="width=device-width, initial-scale=1.0">-->
+  <!--This one seems to work all the time, but really small on ipad-->
+  <!--<meta name="viewport" content="initial-scale=0.4">-->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <link rel="stylesheet" media="all" href="theme/css/default.css">
+  <link rel="stylesheet" media="only screen and (max-device-width: 480px)" href="theme/css/phone.css">
+  <base target="_blank"> <!-- This amazingness opens all links in a new tab. -->
+  <script data-main="js/slides" src="js/require-1.0.8.min.js"></script>
+</head>
+<body style="opacity: 0">
+
+<slides class="layout-widescreen">
+
+  <slide class="logoslide nobackground">
+    <article class="flexbox vcenter">
+      <span><img src="images/asus-logo.jpg"></span>
+    </article>
+  </slide>
+
+  <slide class="title-slide segue nobackground">
+    <!-- The content of this hgroup is replaced programmatically through the slide_config.json. -->
+    <hgroup class="auto-fadein">
+      <h1 data-config-title><!-- populated from slide_config.json --></h1>
+      <h2 data-config-subtitle><!-- populated from slide_config.json --></h2>
+      <p data-config-presenter><!-- populated from slide_config.json --></p>
+    </hgroup>
+  </slide>
+
+  <slide>
+    <hgroup>
+      <h2>Agenda</h2>
+    </hgroup>
+    <article>
+      <ul>
+       <li>Background on the ARM Architecture and Linux support</li>
+       <li>Device Tree Overview</li>
+       <li>Booting with Device Tree Blob</li>
+       <li>Integration with Linux Device Model</li>
+      </ul>
+    </article>
+  </slide>
+
+  <slide>
+    <hgroup>
+      <h2>From ARM Architecture to a Board</h2>
+    </hgroup>
+    <article class="flexbox vcenter">
+      <span><img src="images/arm.png" alt="arm" title="arm"></span>
+    </article>
+    <aside class="note">
+      <section>
+        <ul>
+          <li>ARM Architecture: A Spec. to define instruction set, interface with the MMU, interrupt, and etc.</li>
+          <li>ARM Core: A specific implementation of a given ARM Arch. and delivered in the form of a netlist or Verilog code to licensees</li>
+          <li>System-on-chip: Integrate the ARM core with a number of SoC peripherals. Done by slicon vendors, sold in form of a chip.</li>
+          <li>Board: Integrate the SoC on a PCB with other components. Done by system makers. </li>
+        </ul>
+      </section>
+    </aside>
+  </slide>
+
+  <slide>
+    <hgroup>
+      <h2>Schematic View of a Board</h2>
+    </hgroup>
+    <article class="flexbox vcenter">
+        <span><img style="margin-top:-1em" src="images/board.png" alt="board" title="board"></span>
+      <footer class="source">source: https://archive.fosdem.org/2013/schedule/event/arm_in_the_linux_kernel/attachments/slides/273/export/events/attachments/arm_in_the_linux_kernel/slides/273/arm_support_kernel.pdf</footer>
+    </article>
+  </slide>
+
+  <slide>
+    <hgroup>
+      <h2>Problems</h2>
+    </hgroup>
+    <article class="smaller">
+      <ul>
+        <li>Beyond the ARM core itself, a lot of freedom is left to the SoC vendor</li>
+        <li>More and more ARM SoCs have appeared and are appearing.
+        <ul>
+          <li class="black">arch/arm/</li>
+          <ul>
+            <li class="black">arch/arm/{kernel,mm,lib,boot}/</li>
+The core ARM kernel. Contains the code related to the ARM core itself (MMU, interrupts, caches, etc.). Relatively small compared to the SoC-specific code.
+            <li class="black">arch/arm/mach-<code>&lt;foo&gt;</code></li>
+The SoC-specific code, and board-specific code, for a given SoC family.
+            <ul>
+              <li class="black">arch/arm/mach-<code>&lt;foo&gt;</code>/board-<code>&lt;bar&gt;.c</code></li>
+              The board-specific code.
+            </ul>
+          </ul>
+          <li class="black">drivers/</li>The device drivers themselves.
+        </li>
+        </ul>
+        <li>Consequences: lot of <b>code duplication, missing common infrastructures,</b> maintainability problem, etc.</li>
+        <li>March 2011, Linus Torvalds, Gaah. Guys, this whole ARM thing is a f*cking pain in the ass.</li>
+      </ul>
+    </article>
+  </slide>
+
+  <slide>
+    <hgroup>
+      <h2>ARM Kernel Support</h2>
+    </hgroup>
+    <article class="flexbox vcenter">
+      <ul>
+        <li>Issue#1: too much code, lack of review
+        <ul>
+          <li>Exploding number of ARM SoC, from different vendors</li>
+          <li>The historical maintainer, Russell King, got overflowed by the amount of code to review.</li>
+        </li>
+        </ul>
+        <li>Change#1: A new maintainer team for the ARM sub-architectures
+        <ul>
+          <li>All the ARM SoC-specific code goes through them, in a tree called arm-soc </li>
+          <li>Core ARM changes continue to go through Russell King.</li>
+        </li>
+        </ul>
+      </ul>
+      <span><img style="margin-top:-1em" src="images/maintainer.png" alt="arm maintainer" title="arm maintainer"></span>
+    </article>
+  </slide>
+
+  <slide>
+    <hgroup>
+      <h2>ARM Kernel Support</h2>
+    </hgroup>
+    <article>
+      <ul>
+        <li>Issue#2: the need for multiplatform kernel
+        <ul>
+          <li>On x86 PC, one can build a <b>single kernel image</b> (with many modules) that boots and work on all PCs</li>
+          <li>On ARM, it was <b>impossible to build a single kernel</b> that would boot on systems using different SoCs.</li>
+          <li>Most devices inside an ARM SoC and on the board cannot be dynamically enumerated: they have to be statically described</li>
+          <li>The old way of doing this description was by using C code, registering platform_device structure for each hardware device</li>
+        </li>
+        </ul>
+        <li>Change#2: Device Tree
+        <ul>
+          <li>Also refer to as <b>Open Firmware</b> (abbreviated <b>OF</b>) or <b>Flattened Device Tree</b> (<b>FDT</b>)</li>
+        </li>
+        </ul>
+      </ul>
+    </article>
+    <aside class="note">
+      <section>
+        <p>each kernel binary is compiled for a specific chip on a specific board, which is more or less like compiling the kernel for each PC motherboard on the market.</p>
+      </section>
+    </aside>
+  </slide>
+
+  <slide>
+    <hgroup>
+      <h2>Without Device Tree</h2>
+    </hgroup>
+    <article class="smaller">
+      <p class="green3">arch/arm/mach-msm/asustek/devices_asustek.c</p>
+      <pre class="prettyprint" data-lang="c">
+<b>static struct resource resources_asustek_pcbid[] = {</b>
+	{
+		.start	= 57,
+		.end	= 57,
+		.name	= "PCB_ID0",
+		.flags	= IORESOURCE_IO,
+	},
+	...
+	{
+		.start	= 86,
+		.end	= 86,
+		.name	= "PCB_ID8",
+		.flags	= IORESOURCE_IO,
+	},
+};
+<b>static struct platform_device asustek_pcbid_device = {</b>
+	...
+<b>	.num_resources	= ARRAY_SIZE(resources_asustek_pcbid),
+	.resource = resources_asustek_pcbid,</b>
+	...
+};
+void __init asustek_add_pcbid_devices(void)
+{
+<b>	platform_device_register(&asustek_pcbid_device);</b>
+}
+      </pre>
+    </article>
+  </slide>
+
+  <slide>
+    <hgroup>
+      <h2>Device Tree Overview</h2>
+    </hgroup>
+    <article>
+      <ul>
+        <li>The purpose of the Device Tree is to move significant part of <b>hardware description</b> into a data structure.
+        <ul>
+          <li>Rather than hard coding every detail of a device into kernel</li>
+          <li>No longer is part of kernel binary itself</li>
+        </li>
+        </ul>
+        <li><b>The Device Tree Source</b> is compiled into a binary <b>Device Tree Blob.</b> </li>
+        <li>The Device Tree Blob is loaded into memory and passed to kernel at booting</li>
+        <li>It replaces all the board-*.c files, and removes all the manual registration of platform_device. Also no longer needed to have Kconfig options for each board.</li>
+        <li>This is required by upstream ARM/Linux
+        <ul>
+          <li>Also used on arm, microblaze, mips, powerpc, sparc, and x86.</li>
+        </li>
+        </ul>
+      </ul>
+    </article>
+  </slide>
+
+  <slide>
+    <hgroup>
+      <h2>Compiling the Device Tree</h2>
+    </hgroup>
+    <article>
+      <ul>
+        <li>Device Tree Compiler (DTC)
+        <ul>
+          <li>Convert between *.dts  and *.dtb</li>
+          <li>/scripts/dtc</li>
+        </ul>
+      </li>
+      </ul>
+      <ul>
+        <li>Device Tree Source (DTS)
+        <ul>
+          <li>A text file (*.dts, *.dtsi): "source"</li>
+          <li>/arch/arm/boot/dts/*</li>
+          <li><a href="
+https://git.kernel.org/cgit/linux/kernel/git/torvalds/linux.git/tree/arch/arm/boot/dts?id=refs/tags/v3.10">List</a> is supported on kernel 3.10</li>
+        </li>
+        </ul>
+      </ul>
+      <ul>
+        <li>Device Tree Blob (DTB)
+        <ul>
+          <li>A binary blob (*.dtb): “object code"</li>
+          <li>DTB is loaded into memory by bootloader</li>
+        </ul>
+        </li>
+      </ul>
+    </article>
+  </slide>
+
+  <slide>
+    <article class="smaller">
+      <h6>What the DT Looks Like (eg, tegra124-ardbeg.dts)</h6>
+        <pre class="prettyprint" data-lang="DTS">
+/dts-v1/;
+/include/ "tegra124.dtsi"
+/ {
+	model = "NVIDIA Tegra124 Ardbeg";
+	compatible = "nvidia,ardbeg", "nvidia,tegra124";
+	#address-cells = <1>;
+	#size-cells = <1>;
+	chosen {
+		bootargs = "tegraid=40.0.0.00.00 vmalloc=256M video=tegrafb console=ttyS0,115200n8 earlyprintk";
+		linux,initrd-start = <0x85000000>;
+		linux,initrd-end = <0x851bc400>;
+	};
+        serial@70006000 {
+                compatible = "nvidia,tegra114-hsuart";
+                status = "okay";
+        };
+	...
+	memory@0x80000000 {
+		device_type = "memory";
+		reg = <0x80000000 0x80000000>;
+	};
+	i2c@7000c000 {
+		status = "okay";
+		clock-frequency = <100000>;
+	};
+	...
+	spi@7000d400 {
+		status = "okay";
+		spi-max-frequency = <25000000>;
+	};
+	...
+};
+        </pre>
+    </article>
+  </slide>
+
+  <slide>
+    <hgroup>
+      <h2>Device Tree Model</h2>
+    </hgroup>
+    <article>
+      <ul>
+        <li>The "Open Firmware Device Tree", or simply Device Tree(DT), is a data structure and language for decribling hardware</li>
+        <li>The structure itself is simple tree of named nodes and properties.
+        <ul>
+          <li>Node gives structure and may contain both properties and child nodes.</li>
+          <li>Properties add details and are key-value pairs where a property can have value or not.</li>
+        </li>
+        </ul>
+        <li>The device-tree layout is strongly inherited from the definition of the Open Firmware IEEE 1275 device-tree.</li>
+        <li>See the <a href="http://www.devicetree.org/Device_Tree_Usage">Device Tree Usage</a> page for more details.</li>
+        <li>Linux kernel source tree at: Documentation/devicetree/booting-without-of.txt</li>
+      </ul>
+    </article>
+      </div>
+    </article>
+  </slide>
+
+  <slide>
+    <hgroup>
+      <h2>Competing Solutions</h2>
+    </hgroup>
+    <article class="smaller">
+        <img src="images/bios.png" alt="BIOS/ACPI/DSDT" title="BIOS/ACPI/DSDT">BIOS/ACPI/DSDT: Advanced Configuration and Power Interface
+        <ul>
+          <li>ACPI is found on x86 compatible systems and has its roots in the original IBM PC BIOS.</li>
+        </ul>
+        <img src="images/uefi.png" alt="UEFI" title="UEFI">UEFI: The Extensible Firmware Interface
+        <ul>
+          <li>This interface was designed by Intel as a replacement for the PC BIOS interface.</li>
+        </ul>
+        <img src="images/openfirmware.png" alt="Open Firmware" title="Open Firmware">Open Firmware
+        <ul>
+          <li>Firmware interface specification was designed by Sun in the late 1980's, and ported to many architectures.</li>
+        </ul>
+      <footer class="source">source: Embedded Linux Conference Europe 2012.pdf given by Thomas Petazzoni@Free Electrons</footer>
+    </article>
+  </slide>
+
+  <slide>
+    <hgroup>
+      <h2>Setup boot data</h2>
+    </hgroup>
+    <article>
+      <p>In order to boot ARM Linux, you require a boot loader, which is a small program that runs before the main kernel.</p>
+      <ul>
+        <li>Nvidia: Bootloader Development Kit</li>
+        <li>Qualcomm: Little Kernel, or usbloader (legacy)</li>
+      </ul>
+      <p>The boot loader must provide either</p>
+      <ul class="build fade">
+        <li>a tagged list or </li>
+        <li>a DTB image for passing configuration data to kernel</li>
+      </ul>
+    </article>
+  </slide>
+
+  <slide>
+    <aside class="note">
+      <section>
+        <ul>
+          <li>Refer to /Documentation/devicetree/booting-without-of.txt</li>
+        </ul>
+      </section>
+    </aside>
+    <hgroup>
+      <h2>Entry point for arch/arm</h2>
+    </hgroup>
+    <article>
+      <p>That entry point supports two calling conventions</p>
+      <table>
+        <tr>
+          <th>Register</th><th>ATAG</th><th>Device Tree</th>
+        </tr>
+        <tr>
+          <td>R0</td><td>NULL</td><td>NULL</td>
+        </tr>
+        <tr>
+          <td>R1</td><td>Machine type number<br>(eg, flo->7801, deb->7802, grouper->4117)</td>
+          <td class="highlight">Unique is no longer required.<br> A single number represents a family of SoCs.</td>
+        </tr>
+        <tr>
+          <td>R2</td><td>Physical address of tagged list in RAM</td><td class="highlight">Physical address to DTB in RAM</td>
+        </tr>
+      </table>
+      <br>
+      <ul>
+        <li>Differentiate between ATAGS and device tree booting by reading the memory <br>
+            pointed to by R2 and looking for
+        <ul>
+          <li>flattened device tree block magic value (0xd00dfeed) or</li>
+          <li>the ATAG_CORE value at offset 0x4 from R2 (0x54410001). </li>
+        </ul>
+        </li>
+      </ul>
+    </article>
+  </slide>
+
+
+  <slide>
+    <article class="smaller">
+      <p class="green3"> arch/arm/kernel/setup.c </p>
+      <pre class="prettyprint" data-lang="c">
+void __init setup_arch(char **cmdline_p)
+{
+	struct machine_desc *mdesc;
+
+	setup_processor();
+<b>	mdesc = setup_machine_fdt(__atags_pointer); </b>
+	if (!mdesc)
+		mdesc = setup_machine_tags(__atags_pointer, __machine_arch_type);
+	machine_desc = mdesc;
+	machine_name = mdesc->name;
+	...
+      </pre>
+    </article>
+    <article class="smaller">
+      <p class="green3"> arch/arm/kernel/devtree.c </p>
+      <pre class="prettyprint" data-lang="c">
+struct machine_desc * __init setup_machine_fdt(unsigned int dt_phys)
+{
+	...
+	if (!dt_phys)
+		return NULL;
+
+	devtree = phys_to_virt(dt_phys);
+
+	/* check device tree validity */
+<b>	if (be32_to_cpu(devtree->magic) != OF_DT_HEADER)
+		return NULL; </b>
+      </pre>
+    </article>
+  </slide>
+
+  <slide>
+    <hgroup>
+      <h2>Device Tree Booting</h2>
+    </hgroup>
+    <article>
+      <ul>
+        <li>When booting with device tree
+        <ul>
+           <li>r1 is the special Machine Type number (0xffffffff) for Device Tree</li>
+           <li>r2 is a pointer to the DTB image</li>
+        </li>
+        </ul>
+        <li>Bootloader reads SoC/PCB ID and loads the appropriate DTB image</li>
+        <li>Linux reads top-level "compatibility" property and matches that string against all MACHINE_DESC entries populated<li>
+        <li>of_platform_populate() checks DT table which passed by bootloader
+        <ul>
+          <li>Called from the board file at arch initcall</li>
+          <li>Traverses child nodes from the root node, matching against a passed-in match table</li>
+        </li>
+        </ul>
+      </ul>
+    </article>
+  </slide>
+
+  <slide>
+    <hgroup>
+      <h2>Platform Identification</h2>
+    </hgroup>
+    <article class="smaller">
+      <ul>
+        <li>*.dts and *.dtsi files are under /arch/arm/boot/dts</li>
+        <li>list is sorted from most specific (exact board) to least specific (SoC family)</li>
+        <p class="green3">/arch/arm/boot/dts/msm8960-cdp.dts</p>
+        <pre class="prettyprint" data-lang="DTS">
+/ {
+	model = "Qualcomm MSM8960 CDP";
+	compatible = "qcom,msm8960-cdp", "qcom,msm8960";
+        </pre>
+        <p class="green3">/arch/arm/boot/dts/tegra124-ardbeg.dts</p>
+        <pre class="prettyprint" data-lang="DTS">
+/include/ "tegra124.dtsi"
+/ {
+	model = "NVIDIA Tegra124 Ardbeg";
+	compatible = "nvidia,ardbeg", "nvidia,tegra124";
+        </pre>
+    </article>
+  </slide>
+
+  <slide>
+    <article class="smaller">
+      <p class="green3"> /arch/arm/mach-tegra/board-ardbeg.c </p>
+      <pre class="prettyprint" data-lang="c">
+struct of_dev_auxdata ardbeg_auxdata_lookup[] __initdata = {
+	...
+	OF_DEV_AUXDATA("nvidia,tegra124-i2c", 0x7000c000, "tegra12-i2c.0",
+				NULL),
+	...
+	OF_DEV_AUXDATA("nvidia,tegra124-i2c", 0x7000d100, "tegra12-i2c.5",
+				NULL),
+	{}
+};
+static void __init tegra_ardbeg_dt_init(void)
+{
+	...
+<b>
+	of_platform_populate(NULL,
+		of_default_bus_match_table, ardbeg_auxdata_lookup,
+		&platform_bus);
+</b>
+	...
+}
+<b>static const char * const ardbeg_dt_board_compat[] = {
+	"nvidia,ardbeg",
+	NULL
+};</b>
+DT_MACHINE_START(ARDBEG, "ardbeg")
+	...
+<b>
+	.init_machine	= tegra_ardbeg_dt_init,
+	.dt_compat	= ardbeg_dt_board_compat,
+</b>
+MACHINE_END
+      </pre>
+    </article>
+    <aside class="note">
+      <section>
+        <ul>
+          <li>Historically .init_machine() has been implemented on embedded platforms by defining a set of static clock structures, platform_devices, and other data in the board support .c file </li>
+          <li>When DT is used, then instead of hard coding static devices for each platform, the list of devices can be obtained by parsing the DT, and allocating device structures dynamically. </li>
+        </ul>
+      </section>
+    </aside>
+  </slide>
+
+  <slide>
+    <hgroup>
+      <h2>Runtime Configuration</h2>
+    </hgroup>
+    <article class="smaller">
+      <ul>
+        <li>The /chosen are one of special nodes that don't describe hardware
+        <ul>
+          <li>The <b>bootargs></b> property contains kernel arguments</li>
+          <li>The <b>initrd-*</b> properties define address and size of an initrd blob</li>
+        </ul>
+        </li>
+        <pre class="prettyprint" data-lang="DTS">
+chosen {
+	bootargs = "console=ttyS0,115200 loglevel=8";
+	initrd-start = <0xc8000000>;
+	initrd-end = <0xc8200000>;
+};
+        </pre>
+        <li>On ARM, setup_machine_fdt() is responsible for early scanning of the device tree</li>
+        <p class="green3 smaller">arch/arm/kernel/devtree.c</p>
+        <pre class="prettyprint" data-lang="c">
+struct machine_desc * __init setup_machine_fdt(unsigned int dt_phys)
+{
+	...
+	/* Retrieve various information from the /chosen node */
+<b>	of_scan_flat_dt(early_init_dt_scan_chosen, boot_command_line); </b>
+	/* Initialize {size,address}-cells info */
+	of_scan_flat_dt(early_init_dt_scan_root, NULL);
+	/* Setup memory, calling early_init_dt_add_memory_arch */
+	of_scan_flat_dt(early_init_dt_scan_memory, NULL);
+	...
+}
+        </pre>
+      </ul>
+    </article>
+    <aside class="note">
+      <section>
+      <ul>
+      <li>The /chosen node optionally contains an arbitrary number of additional properties for platform-specific configuration data.</li>
+      <li>The of_scan_flat_dt() code scans through the device tree and uses the helpers to extract information required during early boot</li>
+      <ul>
+        <li>the early_init_dt_scan_chosen() helper is used to parse the chosen node including kernel parameters</li>
+        <li>early_init_dt_scan_root() to initialize the DT address space model</li>
+        <li>early_init_dt_scan_memory() to determine the size and location of usuable RAM</li>
+      </ul>
+    </ul>
+      </section>
+    </aside>
+  </slide>
+
+  <slide>
+    <hgroup>
+      <h2>Kernel Boot Command Line</h2>
+    </hgroup>
+    <article>
+    <p>There are four sources for the kernel boot command line in general</p>
+    <ul>
+      <li>Those given as CONFIG_CMDLINE in the kernel configuration</li>
+      <li>Those passed on by bootloader (typically U-boot/BDK/LK on ARM processor, LILO or GRUB on x86)</li>
+      <li>Those included in the device tree, under choosen/bootargs</li>
+      <li>Those built by mkbootimg with "--cmdline" parameters for boot header of android bootimage.</li>
+    </ul>
+    <p>Which one is used depends on kernel configuration parameters.</p>
+    </article>
+  </slide>
+
+  <slide>
+    <hgroup>
+      <h2>Device Drivers</h2>
+    </hgroup>
+    <article>
+      <ul>
+        <li>There are not much changes on device drivers, except
+          <ul>
+            <li>If adding DT support to driver, each driver must have a <b>device tree "binding"</b></li>
+            <ul>
+              <li>A binding associates with "compatible" string value and the properties that a DT node is required to initialize the device</li>
+              <li>A "bindings" is a description of how a device is described in the device tree. (/Documentation/devicetree/bindings)</li>
+            </ul>
+          </li>
+          </ul>
+        <li>Move probe data
+          <ul>
+            <li>*of_node-> struct device</li>
+            <li>*of_match_table -> struct device_driver</li>
+          </ul>
+        </li>
+        <li>include <code>&lt;linux/of*.h&gt;</code> and add the DT query functions with prefix <b>of_*</b></li>
+        </li>
+        <li>The drivers are no longer allowed to include <code>&lt;mach/something.h&gt;</code>, due to multi-platform kernel support</li>
+      </ul>
+    </article>
+  </slide>
+
+  <slide>
+    <hgroup>
+      <h2>DT & Linux Device Model</h2>
+    </hgroup>
+    <article class="smaller">
+      <p class="green3">drivers/regulator/palmas-regulator.c</p>
+      <pre class="prettyprint" data-lang="c">
+<b>
+static struct of_device_id of_palmas_match_tbl[] = {
+	{ .compatible = "ti,palmas-pmic", },
+	{ .compatible = "ti,twl6035-pmic", },
+	{ .compatible = "ti,twl6036-pmic", },
+	{ .compatible = "ti,twl6037-pmic", },
+	{ .compatible = "ti,tps65913-pmic", },
+	{ .compatible = "ti,tps65914-pmic", },
+	{ .compatible = "ti,tps80036-pmic", },
+	{ .compatible = "ti,tps659038-pmic", },
+	{ /* end */ }
+};</b>
+static struct platform_driver palmas_driver = {
+	.driver = {
+		.name = "palmas-pmic",
+<b>		.of_match_table = of_palmas_match_tbl,</b>
+		.owner = THIS_MODULE,
+		.pm     = &palmas_pm_ops,
+	},
+	.probe = palmas_regulators_probe,
+	.remove = palmas_regulators_remove,
+};
+<b>MODULE_DEVICE_TABLE(of, of_palmas_match_tbl);</b>
+</pre>
+    </article>
+  </slide>
+
+  <slide>
+    <hgroup>
+    <h2>DT & Linux Device Model</h2>
+    </hgroup>
+    <article class="smaller">
+      <p class="green3"> /arch/arm/boot/dts/tegra124-soc.dtsi </p>
+      <pre class="prettyprint" data-lang="DTS">
+  ...
+  pmc {
+                <b>compatible = "nvidia,tegra124-pmc";</b>
+                <b>reg = <0x7000e400 0x400>;</b>
+                clocks = <&tegra_car 261>, <&clk32k_in>;
+                clock-names = "pclk", "clk32k_in";
+  };
+      </pre>
+      <p class="green3"> /arch/arm/boot/dts/tegra124-ardbeg.dts </p>
+      <pre class="prettyprint" data-lang="DTS">
+/include/ "tegra124.dtsi"
+/{
+   compatible = "nvidia,ardbeg","nvidia,tegra124";
+   ...
+   pmc {
+                ...
+                <b>nvidia,suspend-mode = <0>;</b>
+                nvidia,cpu-pwr-good-time = <500>;
+                nvidia,cpu-pwr-off-time = <300>;
+                nvidia,core-pwr-good-time = <3845 3845>;
+                nvidia,core-pwr-off-time = <2000>;
+                <b>nvidia,core-power-req-active-high;</b>
+                nvidia,sys-clock-req-active-high;
+        };
+};
+      </pre>
+    </article>
+  </slide>
+
+  <slide>
+    <article class="smaller">
+      <pre class="prettyprint" data-lang="DTS">
+/ {
+    node1 {
+        a-string-property = "A string";
+        a-string-list-property = "first string", "second string";
+        a-byte-data-property = [0x01 0x23 0x34 0x56];
+        an-empty-property;
+        multi-cell-property = <1 2 3 4>; /* each number (cell) is a uint32 */
+        a-cell-property = <1>;
+    };
+};
+      </pre>
+      <ul>
+      <li class="smaller">Strings</li>
+        <ul>
+           <li>rc = of_property_count_strings(np, propname);</li>
+           <li>rc = of_property_read_string(node, propname, out_string);</li>
+           <li>rc = of_property_read_string_index(node, propname, idx, out_string);</li>
+        </ul>
+      <li class="smaller">Unsigned integers</li>
+        <ul>
+           <li>rc = of_property_read_u32(node, propname, out_values);</li>
+           <li>rc = of_property_read_u32_array(node, propname, out_values, size);</li>
+        </ul>
+      <li class="smaller">Boolean</li>
+        <ul>
+           <li>bool = of_property_read_bool(node, propname);</li>
+        </ul>
+      </ul>
+    </article>
+  </slide>
+
+  <slide>
+    <article class="smaller">
+      <p class="green3">arch/arm/mach-tegra/pmc.c</p>
+      <pre class="prettyprint" data-lang="c">
+static const struct of_device_id matches[] __initconst = {
+<b>	{ .compatible = "nvidia,tegra124-pmc" },</b>
+	{ .compatible = "nvidia,tegra148-pmc" },
+	{ .compatible = "nvidia,tegra114-pmc" },
+	{ .compatible = "nvidia,tegra30-pmc" },
+	{ .compatible = "nvidia,tegra20-pmc" },
+	{ }
+};
+
+static void __iomem *tegra_pmc_parse_dt(void)
+{
+<b>	struct device_node *np;</b>
+	u32 prop;
+	enum tegra_suspend_mode suspend_mode;
+	u32 core_good_time[2] = {0, 0};
+	u32 lp0_vec[2] = {0, 0};
+
+<b>	np = of_find_matching_node(NULL, matches);</b>
+	if (!np)
+		return NULL;
+
+<b>	tegra_pmc_base = of_iomap(np, 0);</b>
+	if (!tegra_pmc_base)
+		return NULL;
+
+	tegra_pmc_invert_interrupt = of_property_read_bool(np,
+				     "nvidia,invert-interrupt");
+</pre>
+    </article>
+  </slide>
+
+  <slide>
+    <article class="smaller">
+      <p class="green3">arch/arm/mach-tegra/pmc.c</p>
+      <pre class="prettyprint" data-lang="c">
+#if defined(CONFIG_OF) && defined(CONFIG_COMMON_CLK)
+	tegra_pclk = of_clk_get_by_name(np, "pclk");
+	WARN_ON(IS_ERR(tegra_pclk));
+#endif
+	/* Grabbing the power management configurations */
+<b>	if (of_property_read_u32(np, "nvidia,suspend-mode", &prop)) {
+		suspend_mode = TEGRA_SUSPEND_NONE;
+	} else {
+		switch (prop) {
+		case 0:
+			suspend_mode = TEGRA_SUSPEND_LP0;
+			break;
+		case 1:
+			suspend_mode = TEGRA_SUSPEND_LP1;
+			break;
+		case 2:
+			suspend_mode = TEGRA_SUSPEND_LP2;
+			break;
+		default:
+			suspend_mode = TEGRA_SUSPEND_NONE;
+			break;
+		}
+	}</b>
+	if (of_property_read_u32(np, "nvidia,cpu-pwr-good-time", &prop))
+		suspend_mode = TEGRA_SUSPEND_NONE;
+	pmc_pm_data.cpu_good_time = prop;
+
+	if (of_property_read_u32(np, "nvidia,cpu-pwr-off-time", &prop))
+		suspend_mode = TEGRA_SUSPEND_NONE;
+	pmc_pm_data.cpu_off_time = prop;
+</pre>
+    </article>
+  </slide>
+
+  <slide>
+    <article class="smaller">
+      <p class="green3">arch/arm/mach-tegra/pmc.c</p>
+      <pre class="prettyprint" data-lang="c">
+<b>	if (of_property_read_u32_array(np, "nvidia,core-pwr-good-time",
+			core_good_time, ARRAY_SIZE(core_good_time)))
+		suspend_mode = TEGRA_SUSPEND_NONE;
+</b>
+	pmc_pm_data.core_osc_time = core_good_time[0];
+	pmc_pm_data.core_pmu_time = core_good_time[1];
+	...
+<b>	pmc_pm_data.corereq_high = of_property_read_bool(np,
+				"nvidia,core-power-req-active-high");
+</b>
+	pmc_pm_data.sysclkreq_high = of_property_read_bool(np,
+				"nvidia,sys-clock-req-active-high");
+
+	pmc_pm_data.combined_req = of_property_read_bool(np,
+				"nvidia,combined-power-req");
+
+	pmc_pm_data.cpu_pwr_good_en = of_property_read_bool(np,
+				"nvidia,cpu-pwr-good-en");
+
+	if (of_property_read_u32_array(np, "nvidia,lp0-vec", lp0_vec,
+				ARRAY_SIZE(lp0_vec))) {
+		pmc_pm_data.lp0_vec_phy_addr = lp0_vec[0];
+		pmc_pm_data.lp0_vec_size = lp0_vec[1];
+	}
+
+	pmc_pm_data.suspend_mode = suspend_mode;
+	return tegra_pmc_base;
+}
+</pre>
+    </article>
+  </slide>
+
+  <slide>
+    <hgroup>
+      <h2>Conclusion</h2>
+    </hgroup>
+    <article class="smaller">
+      <ul>
+        <li>Advantages
+          <ul>
+          <li>for distributions</li>
+            <ul>
+              <li>Becomes feasible for shipping one FDT image on similar hardware plaform using same chipset.</li>
+            </ul>
+          <li>for SoC vendors</li>
+            <ul>
+              <li>Reduce or eliminate effort needed to write machine support code (ie arch/arm/mach-*). Focus on device driver development instead.</li>
+            </ul>
+          <li>for board designers</li>
+            <ul>
+              <li>Reduce or eliminate effort to port.</li>
+              <li>No need to allocate a new global ARM machine id for each new board variant.</li>
+              <li>Most board specific changes constrained to FDT file and device driver </li>
+            </ul>
+          <li>for bootloader developers</li>
+            <ul>
+              <li>Reduce impact of getting board description wrong, allocating new machine numbers, and new ATAGs</li>
+            </ul>
+          </ul>
+        </li>
+        <li>Disadvantages
+          <ul>
+            <li>More feasibility == More complexity?</li>
+            <li>Not so easy to write a new .dts file, because it requires very detailed knowledge of the hardware.</li>
+          </ul>
+        </li>
+      </ul>
+    </article>
+  </slide>
+  <slide class="thank-you-slide segue nobackground">
+    <article class="flexbox vleft auto-fadein">
+      <h2>&lt;Thank You!&gt;</h2>
+    </article>
+    <p class="auto-fadein" data-config-contact>
+      <!-- populated from slide_config.json -->
+    </p>
+  </slide>
+
+
+ <slide class="backdrop"></slide>
+
+</slides>
+
+<script>
+var _gaq = _gaq || [];
+_gaq.push(['_setAccount', 'UA-XXXXXXXX-1']);
+_gaq.push(['_trackPageview']);
+
+(function() {
+  var ga = document.createElement('script'); ga.type = 'text/javascript'; ga.async = true;
+  ga.src = ('https:' == document.location.protocol ? 'https://ssl' : 'http://www') + '.google-analytics.com/ga.js';
+  var s = document.getElementsByTagName('script')[0]; s.parentNode.insertBefore(ga, s);
+})();
+</script>
+
+<!--[if IE]>
+  <script src="http://ajax.googleapis.com/ajax/libs/chrome-frame/1/CFInstall.min.js"></script>
+  <script>CFInstall.check({mode: 'overlay'});</script>
+<![endif]-->
+</body>
+</html>
